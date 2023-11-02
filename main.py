@@ -6,6 +6,8 @@ from handlers import registration, main_func, work
 from middlewares.db import DbSessionMiddleware
 import os
 from dotenv import load_dotenv
+
+
 load_dotenv()
 
 
@@ -23,9 +25,10 @@ async def main():
 
     bot = Bot(token=token)
     dp = Dispatcher()
-
-    dp.include_routers(registration.router, main_func.router, work.router)
     dp.update.outer_middleware(DbSessionMiddleware(session_pool=sessionmaker))
+    dp.include_routers(registration.router, main_func.router, work.router)
+
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 

@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import  AsyncSession
 from db.user import User, Cart, Product
 import re
 import csv
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
 
 router = Router()
 
@@ -28,7 +31,7 @@ async def spam(callback: CallbackQuery, session: AsyncSession, bot: Bot):
         await bot.send_message(int(chatId), text="Завтра будет доставка с 11:00 до 17:00. Если вы готовы принять, то выберите кнопку \"Доставка\" и уточните свой адрес", reply_markup=get_keyboard_dostavka())
 
 @router.callback_query(F.data == "get_file_dostavka")
-async def get_file_dostavka(callback: CallbackQuery, session: AsyncSession):
+async def get_file_dostavka(callback: CallbackQuery, session: AsyncSession, bot:Bot):
     user_sel = select(User)
     result = await session.execute(user_sel)
     user = result.scalars().all()
@@ -45,6 +48,8 @@ async def get_file_dostavka(callback: CallbackQuery, session: AsyncSession):
 
                 if(c.sum >= 1500):
                     writer.writerow([i.phone, i.name, c.sum, i.address])
+    send_file = FSInputFile(f"C:\\Users\\Олег\\PycharmProjects\\pythonProject4\\clients_car.csv" )
+    await bot.send_document(chat_id=os.getenv("ID_GROUP_FILE"), document=send_file)
 
 
 @router.callback_query(F.data == "get_cart_user")

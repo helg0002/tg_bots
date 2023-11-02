@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot, exceptions
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
 from aiogram.fsm.state import StatesGroup, State
 from sqlalchemy import select
 from keyboards.for_main_func import get_keyboard_main, get_keyboard_back, get_keyboard_buy, get_keyboard_address, get_keyboard_refusal
@@ -12,10 +12,9 @@ import re
 import os
 from dotenv import load_dotenv
 from lexicon.lexicon import LEXICON_MAIN
+from keyboards.for_view_cart import ViewProduct, view_product
 
-from aiogram.utils.web_app import safe_parse_webapp_init_data
-from aiohttp.web_request import Request
-from aiohttp.web_response import json_response
+
 
 # async def check_data_handler(request: Request):
 #     bot: Bot = request.app["bot"]
@@ -40,7 +39,8 @@ class FSM(StatesGroup):
 
 @router.callback_query(F.data == "get_rules" )
 async def get_rules(callback: CallbackQuery):
-    await callback.message.edit_text(LEXICON_MAIN['rules'], reply_markup=get_keyboard_back())
+    await callback.message.edit_text(LEXICON_MAIN['rules'], parse_mode="html", reply_markup=get_keyboard_back())
+
 
 
 
@@ -54,7 +54,7 @@ async def back (callback: CallbackQuery, state: FSMContext, bot:Bot):
             await bot.delete_message(chat_id=callback.message.chat.id, message_id=i)
         await state.clear()
     await callback.message.edit_text(LEXICON_MAIN['main'],
-                             reply_markup=get_keyboard_main())
+                             reply_markup=get_keyboard_main(), parse_mode="html")
 
 
 
@@ -120,23 +120,66 @@ async def buy (callback: CallbackQuery, session: AsyncSession, bot: Bot):
         await callback.answer("Товар был кем-то забронирован")
 
 
-@router.callback_query(F.data == "view_cart")
-async def view_cart(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
-    cart_sel = select(Cart).where(Cart.chatId == callback.from_user.id)
-    result_cart = await session.execute(cart_sel)
-    cart = result_cart.scalar()
-    await callback.message.delete()
-    msg_id = []
-    # Вывод забронированного поста пользователю
-    for i in cart.product:
-        photo = i.photo
-        send_photo = FSInputFile(f"C:\\folder\\" + photo)
-        msg = await callback.message.answer_photo(photo=send_photo, caption="Цена {price} Р\n\n{description}\n\n{dataCreate}".format(price=i.price, description=i.description, dataCreate=i.dataCreatePost), reply_markup=get_keyboard_refusal())
-        msg_id.append(msg.message_id)
-    await state.update_data(msg_id=msg_id)
+# @router.callback_query(F.data == "view_cart")
+# async def view_cart(callback: CallbackQuery, session: AsyncSession, state: FSMContext):
+#     cart_sel = select(Cart).where(Cart.chatId == callback.from_user.id)
+#     result_cart = await session.execute(cart_sel)
+#     cart = result_cart.scalar()
+#     await callback.message.delete()
+#     msg_id = []
+#     # Вывод забронированного поста пользователю
+#     for i in cart.product:
+#         photo = i.photo
+#         send_photo = FSInputFile(f"C:\\folder\\" + photo)
+#         msg = await callback.message.answer_photo(photo=send_photo, caption="Цена {price} Р\n\n{description}\n\n{dataCreate}".format(price=i.price, description=i.description, dataCreate=i.dataCreatePost), reply_markup=get_keyboard_refusal())
+#         msg_id.append(msg.message_id)
+#     await state.update_data(msg_id=msg_id)
+#
+#     await callback.message.answer("Сумма вашего заказа: " + str(cart.sum) + " Р", reply_markup=get_keyboard_back())
+#     await callback.answer()
 
-    await callback.message.answer("Сумма вашего заказа: " + str(cart.sum) + " Р", reply_markup=get_keyboard_back())
-    await callback.answer()
+
+@router.callback_query(F.data == "view_cart")
+async def view_cart(callback: CallbackQuery, session: AsyncSession, state: FSMContext, bot:Bot):
+    try:
+        cart_sel = select(Cart).where(Cart.chatId == callback.from_user.id)
+        result_cart = await session.execute(cart_sel)
+        cart = result_cart.scalar()
+        await callback.message.delete()
+        msg_id = []
+        media = []
+        caption = []
+        product_id = []
+        msg_media_list = []
+        # Вывод забронированного поста пользователю
+
+        for i in cart.product:
+            photo = i.photo
+            send_photo = FSInputFile(f"C:\\folder\\" + photo)
+            media.append(InputMediaPhoto(media=send_photo, caption="Цена {price} Р\n\n{description}\n\n{dataCreate}".format(price=i.price, description=i.description, dataCreate=i.dataCreatePost)))
+            caption.append(str(len(media)) + ". -- Цена {price} Р\n{description}".format(price=i.price, description=i.description))
+            product_id.append(i.id)
+
+        for i in range(0, len(media), 10):
+            media_group = media[i:i + 10]
+            msg_media_group = await callback.message.answer_media_group(media=media_group)
+            for i in range(len(msg_media_group)):
+                media_group_msg_id = msg_media_group[i].message_id
+                msg_media_list.append(media_group_msg_id)
+                msg_id.append(media_group_msg_id)
+
+        btn = view_product(caption, product_id, msg_media_list)
+
+        if(len(media) != 0):
+            msg_btn = await callback.message.answer(text="Здесь вы можете отказаться от брони.\n\nНе более 3-х отказов до следующей доставки", reply_markup=btn)
+            msg_id.append(msg_btn.message_id)
+
+        sum = await callback.message.answer("Сумма вашего заказа: " + str(cart.sum) + " Р", reply_markup=get_keyboard_back())
+        await state.update_data(msg_id=msg_id, sum=sum.message_id)
+    except exceptions.TelegramServerError as err:
+        await callback.answer("Пожалуйста подождите")
+        await view_cart(callback, session, state, bot)
+
 
 
 @router.callback_query(F.data == "dostavka")
@@ -207,28 +250,80 @@ async def rename(callback: CallbackQuery, state: FSMContext):
 #         await callback.answer("Залупу на воротник. Больше 3-х до следующей доставки нельзя")
 
 
-@router.callback_query(F.data == "refusal")
-async def refusal(callback: CallbackQuery, session: AsyncSession):
-    to_id = os.getenv("ID_CHANNEL_REFUSAL")
-    results_caption = callback.message.caption.split('\n', 6)
-    caption = [x for x in results_caption if x][1]
+# @router.callback_query(F.data == "refusal")
+# async def refusal(callback: CallbackQuery, session: AsyncSession):
+#     to_id = os.getenv("ID_CHANNEL_REFUSAL")
+#     results_caption = callback.message.caption.split('\n', 6)
+#     caption = [x for x in results_caption if x][1]
+#
+#     product_sel = select(Product).where(Product.description == caption)
+#     result_product = await session.execute(product_sel)
+#     product = result_product.scalars().first()
+#
+#     if product.cart.knox > 0 and product.cart.chatId == int(callback.message.chat.id):
+#         if(bool(re.search("Собрано", product.description))):
+#             await callback.answer("От собранного товара нельзя отказаться", show_alert=True)
+#             return
+#
+#         product.cart.sum -= int(product.price)
+#         product.cart.knox -= 1
+#
+#         await session.delete(product)
+#         await session.commit()
+#         await callback.message.copy_to(chat_id=to_id)
+#         await callback.message.delete()
+#     else:
+#         await callback.answer("Больше 3-х до следующей доставки нельзя", show_alert=True)
 
-    product_sel = select(Product).where(Product.description == caption)
+@router.callback_query(ViewProduct.filter())
+
+async def refusal(callback: CallbackQuery, session: AsyncSession, callback_data: ViewProduct, bot: Bot, state: FSMContext):
+    await asyncio.sleep(1)
+    caption = callback.message.reply_markup.inline_keyboard
+    to_id = os.getenv("ID_CHANNEL_REFUSAL")
+    btn_id = []
+    btn_text = []
+    btn_msg = []
+    fsm = await state.get_data()
+
+    product_sel = select(Product).where(Product.id == callback_data.id)
     result_product = await session.execute(product_sel)
     product = result_product.scalars().first()
 
+    print(fsm['msg_id'])
     if product.cart.knox > 0 and product.cart.chatId == int(callback.message.chat.id):
-        if(bool(re.search("Собрано", product.description))):
+        if("Собрано" in product.description):
             await callback.answer("От собранного товара нельзя отказаться", show_alert=True)
             return
 
         product.cart.sum -= int(product.price)
         product.cart.knox -= 1
 
+        for i in caption:
+            cal_data = i[0].callback_data.split(":")
+            id = int(cal_data[2])
+            msg_id = int(cal_data[3])
+
+            if (id == product.id):
+                await bot.delete_message(chat_id=callback.message.chat.id, message_id=msg_id)
+                fsm['msg_id'].remove(msg_id)
+
+            if (id != product.id):
+                btn_id.append(id)
+                btn_text.append(i[0].text)
+                btn_msg.append(msg_id)
+
+        btn = view_product(btn_text, btn_id, btn_msg)
+
+        photo = product.photo
+        send_photo = FSInputFile(f"C:\\folder\\" + photo)
+        await bot.send_photo(chat_id=to_id, photo=send_photo, caption="Цена {price} Р\n\n{description}\n\n{dataCreate}".format(price=product.price, description=product.description, dataCreate=product.dataCreatePost), reply_markup=get_keyboard_refusal())
         await session.delete(product)
         await session.commit()
-        await callback.message.copy_to(chat_id=to_id)
-        await callback.message.delete()
+
+        await callback.message.edit_reply_markup(reply_markup=btn)
+
+        await bot.edit_message_text("Сумма вашего заказа: " + str(product.cart.sum) + " Р", callback.message.chat.id, fsm["sum"], reply_markup=get_keyboard_back())
     else:
         await callback.answer("Больше 3-х до следующей доставки нельзя", show_alert=True)
 
@@ -266,3 +361,5 @@ async def refusal(callback: CallbackQuery, session: AsyncSession):
    #      rst1, rst2 = diff_string(caption.rstrip(), product.description.rstrip())
    #      print(f'str2:::\n{rst2}')
    #      print(f'str1:::\n{rst1}')
+
+

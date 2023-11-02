@@ -1,4 +1,4 @@
-from aiogram import Router, F, Bot
+from aiogram import Router, F, Bot, exceptions
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.state import StatesGroup, State
@@ -22,7 +22,6 @@ class FSM_name(StatesGroup):
 router = Router()
 load_dotenv()
 
-# engine = create_async_engine(url='postgresql+psycopg://postgres:Geijr123...123\@localhost/python', echo=True)
 
 
 @router.message(Command('start'))
@@ -68,8 +67,7 @@ async def save_name(callback: CallbackQuery, state: FSMContext, session: AsyncSe
         await session.commit()
         await session.close()
         await state.clear()
-        await callback.message.edit_text(text=LEXICON_REG['hello'].format(name=user_data['name']),
-                                      reply_markup=get_keyboard_main())
+        await callback.message.edit_text(text=LEXICON_REG['hello'].format(name=user_data['name']), parse_mode="html", reply_markup=get_keyboard_main())
 
 
 @router.callback_query(F.data == "reply_step_one")
@@ -86,32 +84,46 @@ async def rename(callback: CallbackQuery, state: FSMContext, session: AsyncSessi
 @router.message(FSM_name.name)
 async def load_name(message: Message, state: FSMContext, bot: Bot):
     data = re.findall('[А-я]+', message.text)
+    msg = await state.get_data()
+    try:
+        if(bool(data) != True):
+            print("Залупа")
+            await message.delete()
+            await bot.edit_message_text(text=LEXICON_REG["val_name"], chat_id=message.chat.id, message_id=msg["msg_id"])
+            return
+        if(len(data[0]) < 3 or len(data[0]) > 12):
+            print(len(data[0]))
+            await message.delete()
+            await bot.edit_message_text(text=LEXICON_REG["val_name"], chat_id=message.chat.id, message_id=msg["msg_id"])
+            return
 
-    if(bool(data) != True):
-        await message.answer(LEXICON_REG["val_name"])
+        await message.delete()
+        await state.update_data(name=data[0])
+        message_id = await state.get_data()
+        await bot.edit_message_text(text="Ваше имя:  " + data[0], chat_id=message.chat.id, message_id=message_id['msg_id'], reply_markup=get_keyboard())
+
+    except exceptions.TelegramBadRequest as err:
         return
-    if(len(data[0]) < 3 | len(data[0]) > 12):
-        await message.answer(LEXICON_REG["val_name"])
-        return
-
-    await message.delete()
-    await state.update_data(name=data[0])
-    message_id = await state.get_data()
-    await bot.edit_message_text(text="Ваше имя:  " + data[0], chat_id=message.chat.id, message_id=message_id['msg_id'], reply_markup=get_keyboard())
-
-
 
 
 
 @router.message(FSM_name.phone)
 async def load_phone(message: Message, state: FSMContext, session: AsyncSession, bot: Bot):
-    data = re.findall('\d+',message.text)[0]
+    data = re.findall('((7|8)\D*\d{3}\D*\d{3}\D*\d{2}\D*\d{2})',message.text)
+    print("111111111   ",len(data))
+    message_id = await state.get_data()
 
-    if(len(data) != 11):
-        await message.answer(LEXICON_REG["val_tel"])
+    if (len(data) == 0):
+        await message.delete()
+        await bot.edit_message_text(text=LEXICON_REG["val_tel"], chat_id=message.chat.id,message_id=message_id['msg_id'])
         return
-    message_id=await state.get_data()
-    await state.update_data(phone=data)
+    phone = data[0][0]
+
+    if(len(phone) != 11):
+        await message.delete()
+        await bot.edit_message_text(text=LEXICON_REG["val_tel"], chat_id=message.chat.id, message_id=message_id['msg_id'])
+        return
+    await state.update_data(phone=phone)
     await message.delete()
-    await bot.edit_message_text(text="Ваш номер телефона " + data, chat_id=message.chat.id, message_id=message_id['msg_id'], reply_markup=get_keyboard())
+    await bot.edit_message_text(text="Ваш номер телефона " + phone, chat_id=message.chat.id, message_id=message_id['msg_id'], reply_markup=get_keyboard())
 
