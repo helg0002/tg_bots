@@ -326,7 +326,7 @@ async def refusal(callback: CallbackQuery, session: AsyncSession, callback_data:
         await bot.edit_message_text("Сумма вашего заказа: " + str(product.cart.sum) + " Р", callback.message.chat.id, fsm["sum"], reply_markup=get_keyboard_back())
     else:
         await callback.answer("Больше 3-х до следующей доставки нельзя", show_alert=True)
-
+   #
    #
    #
    # class colors:
